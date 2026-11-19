@@ -21,6 +21,7 @@ std::string word(int i) {
 TEST(BTreeInsert, EmptyTreeAndDegree) {
     BTree tree(2);
     EXPECT_FALSE(tree.search("missing").has_value());
+    EXPECT_FALSE(tree.remove("missing"));
     EXPECT_THROW(BTree(1), std::invalid_argument);
 }
 
@@ -50,3 +51,12 @@ TEST(BTreeInsert, BoundaryKeysAndValues) {
     EXPECT_FALSE(tree.search("abc1").has_value());
 }
 
+TEST(BTreeRemove, DeletesAndCanReinsertLastKey) {
+    BTree tree(2);
+    ASSERT_TRUE(tree.insert("Apple", 0));
+    EXPECT_TRUE(tree.remove("APPLE"));
+    EXPECT_FALSE(tree.search("apple").has_value());
+    EXPECT_FALSE(tree.remove("apple"));
+    EXPECT_TRUE(tree.insert("apple", 7));
+    EXPECT_EQ(tree.search("apple"), 7);
+}

@@ -100,3 +100,114 @@ bool BTree::insert(const std::string& key, std::uint64_t value) {
     insert_non_full(root_.get(), Pair{std::move(normalized), value});
     return true;
 }
+
+void BTree::borrow_left(Node* node, std::size_t index) {
+    Node* child = node->children[index].get();
+    Node* sibling = node->children[index - 1].get();
+    child->pairs.insert(child->pairs.begin(), std::move(node->pairs[index - 1]));
+    node->pairs[index - 1] = std::move(sibling->pairs.back());
+    sibling->pairs.pop_back();
+    if (!child->leaf) {
+        child->children.insert(child->children.begin(), std::move(sibling->children.back()));
+        sibling->children.pop_back();
+    }
+}
+
+void BTree::borrow_right(Node* node, std::size_t index) {
+    Node* child = node->children[index].get();
+    Node* sibling = node->children[index + 1].get();
+    child->pairs.push_back(std::move(node->pairs[index]));
+    node->pairs[index] = std::move(sibling->pairs.front());
+    sibling->pairs.erase(sibling->pairs.begin());
+    if (!child->leaf) {
+        child->children.push_back(std::move(sibling->children.front()));
+        sibling->children.erase(sibling->children.begin());
+    }
+}
+
+void BTree::merge_children(Node* node, std::size_t index) {
+    Node* left = node->children[index].get();
+    Node* right = node->children[index + 1].get();
+    left->pairs.push_back(std::move(node->pairs[index]));
+    for (auto& pair : right->pairs) {
+        left->pairs.push_back(std::move(pair));
+    }
+    for (auto& child : right->children) {
+        left->children.push_back(std::move(child));
+    }
+    node->pairs.erase(node->pairs.begin() + index);
+    node->children.erase(node->children.begin() + index + 1);
+}
+
+bool BTree::remove(const std::string& key) {
+    if (!search(key).has_value()) {
+        return false;
+    }
+
+    std::string target = normalize(key);
+    Node* node = root_.get();
+
+    while (true) {
+        std::size_t index = 0;
+        while (index < node->pairs.size() && node->pairs[index].key < target) {
+            ++index;
+        }
+
+        if (index < node->pairs.size() && node->pairs[index].key == target) {
+            if (node->leaf) {
+                node->pairs.erase(node->pairs.begin() + index);
+                break;
+            }
+
+            if (node->children[index]->pairs.size() >= degree_) {
+                Node* predecessor = node->children[index].get();
+                while (!predecessor->leaf) {
+                    predecessor = predecessor->children.back().get();
+                }
+                Pair replacement = predecessor->pairs.back();
+                node->pairs[index] = replacement;
+                target = replacement.key;
+                node = node->children[index].get();
+            } else if (node->children[index + 1]->pairs.size() >= degree_) {
+                Node* successor = node->children[index + 1].get();
+                while (!successor->leaf) {
+                    successor = successor->children.front().get();
+                }
+                Pair replacement = successor->pairs.front();
+                node->pairs[index] = replacement;
+                target = replacement.key;
+                node = node->children[index + 1].get();
+            } else {
+                merge_children(node, index);
+                node = node->children[index].get();
+            }
+            continue;
+        }
+
+        if (node->leaf) {
+            break;
+        }
+        if (node->children[index]->pairs.size() == degree_ - 1) {
+            if (index > 0 && node->children[index - 1]->pairs.size() >= degree_) {
+                borrow_left(node, index);
+            } else if (index + 1 < node->children.size() && node->children[index + 1]->pairs.size() >= degree_) {
+                borrow_right(node, index);
+            } else if (index + 1 < node->children.size()) {
+                merge_children(node, index);
+            } else {
+                merge_children(node, index - 1);
+                --index;
+            }
+        }
+        node = node->children[index].get();
+    }
+
+    if (root_->pairs.empty()) {
+        if (root_->leaf) {
+            root_.reset();
+        } else {
+            root_ = std::move(root_->children.front());
+        }
+    }
+    return true;
+}
